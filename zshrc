@@ -35,9 +35,8 @@ mkcd () {
 # :</functions>
 
 # :<go-setup>
-export GOROOT=/usr/local/go
-export GOPATH=$HOME/go
-export GOBIN=$GOPATH/bin
+export GOENV_ROOT="$HOME/.goenv"
+export PATH="$GOENV_ROOT/bin:$PATH"
 # :</go-setup>
 
 # :<path-setup>
@@ -45,4 +44,12 @@ export PATH=/usr/local/bin:$PATH
 export PATH=$HOME/bin:$PATH
 export PATH=$HOME/scripts:$PATH
 export PATH=$GOBIN:$GOROOT/bin:$PATH
+export PATH=$HOME/go/1.13.5/bin:$PATH
 # :</path-setup>
+
+
+# Keep this near the bottom, as it munges $PATH
+# eval "$(goenv init -)"
+# export PATH=/bin:/sbin:/usr/bin:/usr/local/bin:$HOME/bin
+
+
