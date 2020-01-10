@@ -1,0 +1,52 @@
+#!/bin/perl
+# conf - minimal config file editor; no dependencies, works on very old Perls
+
+## PRAGMA
+use strict;
+use warnings;
+
+## IMPORTS
+use Env qw( HOME );
+
+## GLOBALS
+my %CONFIGS = (
+  tmux => "$HOME/.tmux.conf",
+  vim  => "$HOME/.vimrc",
+  zsh  => "$HOME/.zshrc",
+);
+
+# parse arguments, open files in editor
+sub main
+{
+  edit(must_parse_argv());
+}
+
+# Ensure each @ARGV references a file we know about and do one of:
+#   On failure: die, reporting bad args
+#   On success: return a list of files referenced by the arguments
+sub must_parse_argv
+{
+  # by default, if we've been given no args, just return all files
+  return sort values %CONFIGS
+    unless @ARGV;
+
+  # if we got bad args, die, reporting them to STDERR
+  if (my @bad_args = grep { !$CONFIGS{$_} } @ARGV) {
+   die sprintf(
+      "No config files registered for:\n%s\n%s\n",
+      sprintf("- %s\n" x @bad_args, @bad_args),
+      "Exiting.",
+    );
+  }
+
+  # otherwise, all args are good, return the corresponding files
+  return @CONFIGS{@ARGV};
+}
+
+# Given a list of files, blindly open them in vim
+sub edit
+{
+  system('vim', '-p', @_);
+}
+
+main();
