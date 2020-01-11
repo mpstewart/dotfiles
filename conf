@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 ## GLOBALS
-use Env qw( HOME );
+my $HOME = $ENV{HOME};
 my %CONFIGS = (
   tmux => "$HOME/.tmux.conf",
   vim  => "$HOME/.vimrc",
