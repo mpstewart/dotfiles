@@ -25,7 +25,7 @@ sub files ( )
     );
   }
 
-  return @CONFIGS{@ARGV};
+  return split " ", @CONFIGS{@ARGV};
 }
 
 edit files; # :^)
