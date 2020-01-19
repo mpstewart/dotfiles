@@ -1,0 +1,305 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use v5.10;
+
+# generally, croak is for when the program screws up. Die with a trialing
+# newline is for communicating screwups back to the user
+use Carp         qw( croak confess );
+use Data::Dump   qw( ddx pp );
+use DBI;
+use Env          qw( HOME );
+use File::Temp;
+use File::Slurp  qw( write_file read_file );
+
+my $journal_db_location = "$HOME/.journal";
+my $dsn = "dbi:SQLite:dbname=$journal_db_location";
+our $Dbh = DBI->connect($dsn, '', '',);
+
+# parse and dispatch commands...this is somewhat controller-y, too
+sub main
+{
+  switch: for ($ARGV[0]) {
+    !defined($_) && do { # default is new entry
+      my $entry_id = run_write_mode();
+      my %entry    = get_entry($entry_id);
+      print_entry(\%entry);
+
+      last switch;
+    };
+
+    /^list$/ && do {
+      run_list_mode();
+      last switch;
+    };
+
+    /^show$/ && do {
+      my @entry_ids = @ARGV[1..$#ARGV];
+			# hack to make the validation fail if this is empty
+			unshift @entry_ids, undef unless @entry_ids;
+      validate_entry_id($_) for @entry_ids;
+
+      run_show_mode(@entry_ids);
+      last switch;
+    };
+
+    /^delete$/ && do {
+      my @entry_ids = @ARGV[1..$#ARGV];
+      validate_entry_id($_) for @entry_ids;
+
+      run_delete_mode(@entry_ids);
+      last switch;
+    };
+
+    /^edit$/ && do {
+      my $entry_id = $ARGV[1];
+      validate_entry_id($entry_id);
+
+      run_edit_mode($entry_id);
+
+      my %entry    = get_entry($entry_id);
+      print_entry(\%entry);
+
+      last switch;
+    };
+
+    /^init$/ && do {
+      run_init_mode();
+      last switch;
+    };
+
+    die sprintf("Uncrecognized command %s\n",
+      $ARGV[0],
+    );
+  };
+
+
+  $Dbh->disconnect();
+}
+
+# obtain an entry from the editor, then write it to the database
+# returns the entry_id of the created (or edited) entry
+sub run_write_mode
+{
+  my $class = shift;
+
+  my ($title, $body) = write_entry();
+  my $entry_id = commit_entry($title, $body);
+
+  return $entry_id;
+}
+
+# print a list of all entries to the screen
+sub run_list_mode
+{
+	my @entries = get_entries();
+
+	if (scalar @entries == 0) {
+		say "Journal database appears to be empty.";
+		exit 0;
+	}
+  print_entry($_) for @entries;
+}
+
+# return a list of all entries from the database
+sub get_entries
+{
+  my $r = $Dbh->selectall_hashref(<<SQL, 'entry_id');
+  SELECT * FROM entries;
+SQL
+
+  my @entries = ();
+  foreach my $entry_id (sort keys %$r) {
+    my %entry = %{ $r->{$entry_id} };
+    push @entries, \%entry;
+  }
+
+  return @entries;
+}
+
+# given a hashref containing an entry's title, body, and timestamp, print it to the
+# screen
+sub print_entry 
+{
+  my %entry     = ref($_[0]) ? %{+shift} : @_;
+  my $title     = $entry{title};
+  my $body      = $entry{body};
+  my $created   = $entry{created};
+  my $entry_id  = $entry{entry_id};
+
+  say "-" x 50;
+  say sprintf("Title: %-39s%04d", $title, $entry_id);;
+  say "Time: $created";
+  say "---\n";
+  say $body;
+}
+
+# returns a list of the title and body from a journal entry
+sub write_entry
+{
+  my ($title, $body) = @_;
+
+  my $editing = $title && $body;
+
+  my $ft = File::Temp->new(
+    UNLINK => 1,
+    TEMPLATE => 'journal-entry-XXXXX',
+  );
+
+  if ($editing) {
+    print $ft "$title\n---\n\n$body";
+  }
+  else {
+    print $ft "<Title>\n---\n\n";
+  }
+
+  system(vim => $ft->filename) && do {
+    confess "Cannot open file for writing: $?\n";
+  };
+
+  my $raw_text       = read_file($ft->filename);
+  ($title, $body) = split /\n---\n\n?/, $raw_text;
+  
+  return ($title, $body);
+}
+
+# given a title and body, write the entry to the database
+sub commit_entry
+{
+  my ($title, $body, %params) = @_;
+  die "Need title and body. Exiting." unless $title && $body;
+
+  my $updating = my $entry_id = $params{entry_id};
+
+  my $rv;
+  if ($updating) {
+    $rv = $Dbh->do(<<SQL, {}, $title, $body, $entry_id);
+UPDATE entries
+SET
+  title = ?,
+  body  = ?
+WHERE
+  entry_id = ?;
+SQL
+
+    return $entry_id;
+  }
+
+  else {
+    $rv = $Dbh->do(<<SQL, {}, $title, $body);
+INSERT INTO entries (title, body) VALUES (?, ?)
+SQL
+    return $Dbh->last_insert_id();
+  }
+}
+
+sub run_delete_mode
+{
+  my @entry_ids = @_;
+
+  $Dbh->do(<<SQL, {}, $_) for @entry_ids;
+DELETE FROM entries WHERE entry_id = ?;
+SQL
+}
+
+sub run_show_mode
+{
+  my @entry_ids = @_;
+
+  my $fetch_and_print = sub {
+    my $entry_id = shift;
+    my $r = $Dbh->selectall_hashref(<<SQL, 'entry_id', {}, $entry_id);
+SELECT * FROM entries WHERE entry_id = ?;
+SQL
+
+    if (scalar keys %$r == 0) {
+      say "No entries found with entry_id '$entry_id'";
+      exit 0; # not technically a failure, I guess
+    }
+
+    my %entry = %{ $r->{$entry_id} };
+    print_entry(\%entry);
+  };
+
+  $fetch_and_print->($_) for @entry_ids;
+}
+
+sub validate_entry_id
+{
+  my $entry_id = shift;
+
+  my $die_invalid = sub {
+    $entry_id = !defined($entry_id) ? '(undef)' : $entry_id;
+    croak "Invalid entry id '$entry_id'";
+  };
+
+  my $die_missing = sub {
+    die "No entry found for id '$entry_id'\n";
+  };
+
+  defined($entry_id)   or $die_invalid->();
+  $entry_id =~ /^\d+$/ or $die_invalid->();
+
+  # we now know the entry_id is at least valide for searching, let's make sure
+  # we have something that matches it
+  my @valid_ids = @{$Dbh->selectcol_arrayref(<<SQL, {}, $entry_id)};
+SELECT entry_id from entries WHERE entry_id = ?;
+SQL
+
+  scalar(@valid_ids) or $die_missing->();
+  
+  return;
+}
+
+sub run_edit_mode
+{
+  my $entry_id = shift;
+
+  # get entry data
+  my %entry = get_entry($entry_id);
+
+  my $title = $entry{title};
+  my $body  = $entry{body};
+
+  ($title, $body) = write_entry($title, $body);
+  commit_entry($title, $body, entry_id => $entry_id);
+}
+
+sub get_entry
+{
+  my $entry_id = shift;
+
+  # get entry data
+  my %entry = %{$Dbh->selectrow_hashref(<<SQL, {}, $entry_id)};
+  SELECT * FROM entries WHERE entry_id = ?;
+SQL
+
+  return %entry;
+}
+
+sub run_init_mode
+{
+	$Dbh->disconnect();
+	system (rm => $journal_db_location) && do {
+		croak "Unable to remove journal file: $?";	
+	};
+
+	system (touch => $journal_db_location) && do {
+		croak "Unable to create journal file: $?";	
+	};
+
+	# the initialized handle is invalid; re-connect...
+	local $Dbh = DBI->connect($dsn, '', '',);
+
+	$Dbh->do(<<SQL);
+CREATE TABLE IF NOT EXISTS entries (
+  entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title    TEXT NOT NULL,
+  created  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  body     TEXT NOT NULL
+);
+SQL
+}
+
+main();
+0;
