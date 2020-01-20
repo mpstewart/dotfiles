@@ -3,8 +3,6 @@ use strict;
 use warnings;
 use v5.10;
 
-# generally, croak is for when the program screws up. Die with a trialing
-# newline is for communicating screwups back to the user
 use Carp         qw( croak confess );
 use Data::Dump   qw( ddx pp );
 use DBI;
@@ -12,11 +10,14 @@ use Env          qw( HOME );
 use File::Temp;
 use File::Slurp  qw( write_file read_file );
 
-my $journal_db_location = "$HOME/.journal";
+my $journal_db_location = "$HOME/.journal.db";
 my $dsn = "dbi:SQLite:dbname=$journal_db_location";
 our $Dbh = DBI->connect($dsn, '', '',);
 
-# parse and dispatch commands...this is somewhat controller-y, too
+# -----------------
+# MAIN
+# -----------------
+# catch, validate, and dispatch commands
 sub main
 {
   switch: for ($ARGV[0]) {
@@ -28,14 +29,8 @@ sub main
       last switch;
     };
 
-    /^list$/ && do {
-      run_list_mode();
-      last switch;
-    };
-
     /^show$/ && do {
       my @entry_ids = @ARGV[1..$#ARGV];
-			# hack to make the validation fail if this is empty
 			unshift @entry_ids, undef unless @entry_ids;
       validate_entry_id($_) for @entry_ids;
 
@@ -43,11 +38,9 @@ sub main
       last switch;
     };
 
-    /^delete$/ && do {
-      my @entry_ids = @ARGV[1..$#ARGV];
-      validate_entry_id($_) for @entry_ids;
-
-      run_delete_mode(@entry_ids);
+    /^list$/ && do {
+      my $oneline = $ARGV[1] && $ARGV[1] =~ /^--oneline$/;
+      run_list_mode(oneline => $oneline);
       last switch;
     };
 
@@ -57,9 +50,18 @@ sub main
 
       run_edit_mode($entry_id);
 
-      my %entry    = get_entry($entry_id);
+      my %entry = get_entry($entry_id);
       print_entry(\%entry);
 
+      last switch;
+    };
+
+    /^(delete|rm)$/ && do {
+      my @entry_ids = @ARGV[1..$#ARGV];
+			unshift @entry_ids, undef unless @entry_ids;
+      validate_entry_id($_) for @entry_ids;
+
+      run_delete_mode(@entry_ids);
       last switch;
     };
 
@@ -73,69 +75,131 @@ sub main
     );
   };
 
-
   $Dbh->disconnect();
 }
 
+# --------
+# HANDLERS
+# --------
+# Receive dispatch from main. Can safely assume arguments are valid.
+#
+# run_write_mode
 # obtain an entry from the editor, then write it to the database
 # returns the entry_id of the created (or edited) entry
 sub run_write_mode
 {
   my $class = shift;
 
-  my ($title, $body) = write_entry();
-  my $entry_id = commit_entry($title, $body);
+  my ($title, $body) = new_entry();
+  my $entry_id       = insert_entry($title, $body);
 
   return $entry_id;
 }
 
+# run_show_mode
+# given 1 or more entry_ids, print the associated entry cards to the screen.
+# This is done via multiple calls to print_entry()
+sub run_show_mode
+{
+  my @entry_ids = @_;
+
+  for my $entry_id (@entry_ids) {
+    my %entry = get_entry($entry_id);
+    print_entry(%entry);
+  };
+}
+
+# run_list_mode
 # print a list of all entries to the screen
 sub run_list_mode
 {
-	my @entries = get_entries();
+  my %params = @_;
+
+  return _run_oneline_mode() if $params{oneline};
+
+	my @entries = get_all_entries();
 
 	if (scalar @entries == 0) {
 		say "Journal database appears to be empty.";
 		exit 0;
 	}
+
   print_entry($_) for @entries;
 }
 
-# return a list of all entries from the database
-sub get_entries
+# _run_oneline_mode
+# private sub-handler for run_list_mode
+sub _run_oneline_mode
 {
-  my $r = $Dbh->selectall_hashref(<<SQL, 'entry_id');
-  SELECT * FROM entries;
-SQL
-
-  my @entries = ();
-  foreach my $entry_id (sort keys %$r) {
-    my %entry = %{ $r->{$entry_id} };
-    push @entries, \%entry;
-  }
-
-  return @entries;
+  my @entries = get_all_entries();
+  print_entry_oneline($_) for @entries;
 }
 
-# given a hashref containing an entry's title, body, and timestamp, print it to the
-# screen
-sub print_entry 
+# run_edit_mode
+# given an entry_id, edit the associated entry
+sub run_edit_mode
 {
-  my %entry     = ref($_[0]) ? %{+shift} : @_;
-  my $title     = $entry{title};
-  my $body      = $entry{body};
-  my $created   = $entry{created};
-  my $entry_id  = $entry{entry_id};
+  my $entry_id = shift;
 
-  say "-" x 50;
-  say sprintf("Title: %-39s%04d", $title, $entry_id);;
-  say "Time: $created";
-  say "---\n";
-  say $body;
+  # get entry data
+  my %entry = get_entry($entry_id);
+
+  my $title = $entry{title};
+  my $body  = $entry{body};
+
+  ($title, $body) = edit_entry($title, $body);
+  insert_entry($title, $body, entry_id => $entry_id);
 }
 
-# returns a list of the title and body from a journal entry
-sub write_entry
+# run_delete_mode
+# given an entry_id, delete an existing entry
+# TODO: display and prompt?
+sub run_delete_mode
+{
+  my @entry_ids = @_;
+  delete_entry($_) for @entry_ids;
+}
+
+# run_init_mode
+# ***WARNING*** Calling this will drop the database without warning or remorse
+# TODO: prompt
+sub run_init_mode
+{
+	$Dbh->disconnect();
+	system (rm => $journal_db_location) && do {
+		croak "Unable to remove journal file: $?";
+	};
+
+	system (touch => $journal_db_location) && do {
+		croak "Unable to create journal file: $?";
+	};
+
+	# the initialized handle is invalid; re-connect...
+	my $dbh = DBI->connect($dsn, '', '',);
+  init_db($dbh);
+
+  # set the global $Dbh to the new $dbh, so it can be cleaned up later at the
+  # end of main()
+  $Dbh = $dbh;
+}
+
+# ---------
+# BIZ STUFF
+# ---------
+# Functions that facilitate interacting with journal entries, mostly editing
+#
+# new_entry
+# edit_entry
+#
+# _write_entry
+# Functions to edit a journal entry in the editor. In all cases, returns title
+# and body strings in a list. Optionally, existing title and body can be
+# passed, in which case they will be available in the file buffer for editing.
+#
+# new_entry and edit_entry are just wrappers around _write_entry
+sub new_entry  { _write_entry(@_) }
+sub edit_entry { _write_entry(@_) }
+sub _write_entry
 {
   my ($title, $body) = @_;
 
@@ -159,15 +223,53 @@ sub write_entry
 
   my $raw_text       = read_file($ft->filename);
   ($title, $body) = split /\n---\n\n?/, $raw_text;
-  
+
   return ($title, $body);
 }
 
+# ------------
+# DB FUNCTIONS
+# ------------
+# Functions for interacting with the database
+#
+# get_entry
+# given an entry_id, return a hash representing the corresponding entry from
+# the database if it exists
+sub get_entry
+{
+  my $entry_id = shift;
+
+  # get entry data
+  my %entry = %{$Dbh->selectrow_hashref(<<SQL, {}, $entry_id)};
+  SELECT * FROM entries WHERE entry_id = ?;
+SQL
+
+  return %entry;
+}
+
+# get_all_entries
+# Returns a list of hashrefs, representing all journal entries in the database.
+sub get_all_entries
+{
+  my $r = $Dbh->selectall_hashref(<<SQL, 'entry_id');
+  SELECT * FROM entries;
+SQL
+
+  my @entries = ();
+  foreach my $entry_id (sort keys %$r) {
+    my %entry = %{ $r->{$entry_id} };
+    push @entries, \%entry;
+  }
+
+  return @entries;
+}
+
+# insert_entry
 # given a title and body, write the entry to the database
-sub commit_entry
+sub insert_entry
 {
   my ($title, $body, %params) = @_;
-  die "Need title and body. Exiting." unless $title && $body;
+  die "Need title and body. Exiting.\n" unless $title && $body;
 
   my $updating = my $entry_id = $params{entry_id};
 
@@ -193,103 +295,23 @@ SQL
   }
 }
 
-sub run_delete_mode
+# delete_entry
+# given an entry ID, remove the entry from the database
+sub delete_entry
 {
-  my @entry_ids = @_;
+  my $entry_id = shift;
 
-  $Dbh->do(<<SQL, {}, $_) for @entry_ids;
+  $Dbh->do(<<SQL, {}, $entry_id)
 DELETE FROM entries WHERE entry_id = ?;
 SQL
 }
 
-sub run_show_mode
+# init_db
+# run the db initilization SQL against a dbh if provided, or the global $Dbh if
+# none
+sub init_db
 {
-  my @entry_ids = @_;
-
-  my $fetch_and_print = sub {
-    my $entry_id = shift;
-    my $r = $Dbh->selectall_hashref(<<SQL, 'entry_id', {}, $entry_id);
-SELECT * FROM entries WHERE entry_id = ?;
-SQL
-
-    if (scalar keys %$r == 0) {
-      say "No entries found with entry_id '$entry_id'";
-      exit 0; # not technically a failure, I guess
-    }
-
-    my %entry = %{ $r->{$entry_id} };
-    print_entry(\%entry);
-  };
-
-  $fetch_and_print->($_) for @entry_ids;
-}
-
-sub validate_entry_id
-{
-  my $entry_id = shift;
-
-  my $die_invalid = sub {
-    $entry_id = !defined($entry_id) ? '(undef)' : $entry_id;
-    croak "Invalid entry id '$entry_id'";
-  };
-
-  my $die_missing = sub {
-    die "No entry found for id '$entry_id'\n";
-  };
-
-  defined($entry_id)   or $die_invalid->();
-  $entry_id =~ /^\d+$/ or $die_invalid->();
-
-  # we now know the entry_id is at least valide for searching, let's make sure
-  # we have something that matches it
-  my @valid_ids = @{$Dbh->selectcol_arrayref(<<SQL, {}, $entry_id)};
-SELECT entry_id from entries WHERE entry_id = ?;
-SQL
-
-  scalar(@valid_ids) or $die_missing->();
-  
-  return;
-}
-
-sub run_edit_mode
-{
-  my $entry_id = shift;
-
-  # get entry data
-  my %entry = get_entry($entry_id);
-
-  my $title = $entry{title};
-  my $body  = $entry{body};
-
-  ($title, $body) = write_entry($title, $body);
-  commit_entry($title, $body, entry_id => $entry_id);
-}
-
-sub get_entry
-{
-  my $entry_id = shift;
-
-  # get entry data
-  my %entry = %{$Dbh->selectrow_hashref(<<SQL, {}, $entry_id)};
-  SELECT * FROM entries WHERE entry_id = ?;
-SQL
-
-  return %entry;
-}
-
-sub run_init_mode
-{
-	$Dbh->disconnect();
-	system (rm => $journal_db_location) && do {
-		croak "Unable to remove journal file: $?";	
-	};
-
-	system (touch => $journal_db_location) && do {
-		croak "Unable to create journal file: $?";	
-	};
-
-	# the initialized handle is invalid; re-connect...
-	local $Dbh = DBI->connect($dsn, '', '',);
+  my $dbh = shift(@_) // $Dbh;
 
 	$Dbh->do(<<SQL);
 CREATE TABLE IF NOT EXISTS entries (
@@ -299,7 +321,82 @@ CREATE TABLE IF NOT EXISTS entries (
   body     TEXT NOT NULL
 );
 SQL
+
+}
+
+# --------------
+# VIEW FUNCTIONS
+# --------------
+# Console interactions
+#
+# print_entry
+# given a hash or hashref representing an entry, print it to the screen
+sub print_entry
+{
+  my %entry     = ref($_[0]) ? %{+shift} : @_;
+  my $title     = $entry{title};
+  my $body      = $entry{body};
+  my $created   = $entry{created};
+  my $entry_id  = $entry{entry_id};
+
+  say "-" x 50;
+  say sprintf("Title: %-39s%04d", $title, $entry_id);;
+  say "Time: $created";
+  say "---\n";
+  say $body;
+}
+
+# print_entry_oneline
+# Given a hash or hashref representing an entry, print a one line summary of it
+sub print_entry_oneline
+{
+  my %entry = ref($_[0]) ? %{+shift} : @_;
+
+  my ($date) = $entry{created} =~ /^(\d{4}-\d\d-\d\d)/;
+
+  my $one_line = sprintf("%04d| %s: %-33s",
+    $entry{entry_id},
+    $date,
+    $entry{title},
+  );
+
+  say $one_line;
+}
+
+# -------
+# HELPERS
+# -------
+#
+# validate_entry_id
+# Given an entry_id, ensure the following:
+#   1. The entry_id is defined, and all numerical
+#   2. The entry exists in the database
+sub validate_entry_id
+{
+  my $entry_id = shift;
+
+  my $die_invalid = sub {
+    my $reason = shift;
+    die "Invalid Entry ID. $reason.\n";
+  };
+
+  my $die_missing = sub {
+    die "No entry found for id '$entry_id'\n";
+  };
+
+  defined($entry_id)   or $die_invalid->('Entry ID is missing');
+  $entry_id =~ /^\d+$/ or $die_invalid->('Entry ID must be numerical');
+
+  # we now know the entry_id is at least valide for searching, let's make sure
+  # we have something that matches it
+  my @valid_ids = @{$Dbh->selectcol_arrayref(<<SQL, {}, $entry_id)};
+SELECT entry_id from entries WHERE entry_id = ?;
+SQL
+
+  scalar(@valid_ids) or $die_missing->();
+
+  return;
 }
 
 main();
-0;
+exit 0;
