@@ -15,6 +15,7 @@ sub main
 {
     install_vundle();
     install_oh_my_zsh();
+    fix_vim_swapfile();
 }
 
 sub install_vundle
@@ -32,5 +33,12 @@ sub install_oh_my_zsh
 
   system($cmd) && do {
     die "Error installing oh-my-zsh $?";
+  };
+}
+
+sub fix_vim_swapfile
+{
+  system(mkdir => "~/.vim/swapfiles/") && do {
+    die "Unable to create swapfile directory: $?";
   };
 }
