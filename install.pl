@@ -1,25 +1,36 @@
 #!/bin/perl
-# install.pl - unpack dotfiles to home directory
+# install.pl - install comfy env stuff
 use strict;
 use warnings;
 
-use Cwd qw( abs_path );
-use Env qw( HOME     );
+use Carp         qw( carp croak );
+use Cwd          qw( abs_path   );
+use Env          qw( HOME       );
+use File::Which;
 
-# move everything from the archive directory to the home directory
-for my $file (glob('*')) {
-  my ($archive_file, $home_file) = map {
-    "$_/$file"
-  } (abs_path(), $HOME);
+my $CURL = which 'curl';
+my $WGET = which 'wget';
 
-  system(cp => '-r', $archive_file, $home_file ) == 0
-    || die "error during copy: $?";
+sub main
+{
+    install_vundle();
+    install_oh_my_zsh();
 }
 
-# turns out, the easiest way to 'skip' files during a recursive copy is to just
-# copy everything and delete what you would have skipped
-unlink map {
-  "$HOME/$_"
-} ($0);
+sub install_vundle
+{
+  my $cmd = 'git clone https://github.com/VundleVim/Vundle.vim.git ~/.vim/bundle/Vundle.vim';
 
-exit 0;
+  system($cmd) && do {
+    die "Error installing vundle: $?";
+  };
+}
+
+sub install_oh_my_zsh
+{
+  my $cmd = 'git clone https://github.com/mpstewart/oh-my-zsh ~/.oh-my-zsh';
+
+  system($cmd) && do {
+    die "Error installing oh-my-zsh $?";
+  };
+}
