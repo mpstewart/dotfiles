@@ -8,14 +8,14 @@ use Cwd          qw( abs_path   );
 use Env          qw( HOME       );
 use File::Which;
 
-my $CURL = which 'curl';
-my $WGET = which 'wget';
-
 sub main
 {
     install_vundle();
     install_oh_my_zsh();
     fix_vim_swapfile();
+    symlink_dotfiles();
+
+    return 0;
 }
 
 sub install_vundle
@@ -43,4 +43,20 @@ sub fix_vim_swapfile
   };
 }
 
-sub
+sub symlink_dotfiles
+{
+  my @local_files = qw(
+    .vimrc
+    .zshrc
+    .tmux.con
+  );
+
+  for my $filename (@local_files) {
+    my $target = "$HOME/.$filename";
+    system('ln', '-s', $filename => $target) && do {
+      die "Unable to create symlink for $filename: $?";
+    };
+  }
+}
+
+exit main();
