@@ -23,6 +23,13 @@ Plugin 'tpope/vim-fugitive'
 Plugin 'kien/ctrlp.vim'
 Plugin 'fatih/vim-go'
 Plugin 'flazz/vim-colorschemes'
+Plugin 'junegunn/vim-easy-align'
+Plugin 'osyo-manga/vim-over'
+Plugin 'junegunn/gv.vim'
+Plugin 'airblade/vim-gitgutter'
+Plugin 'junegunn/goyo.vim'
+Plugin 'jreybert/vimagit'
+Plugin 'vim-syntastic/syntastic'
 
 
 " All of your Plugins must be added before the following line
@@ -47,7 +54,7 @@ syntax on
 filetype plugin indent on
 
 " TODO: Pick a leader key
-" let mapleader = ","
+let mapleader = ","
 
 " Security
 set modelines=0
@@ -134,3 +141,34 @@ let g:solarized_termtrans=1
 colorscheme gruvbox
 
 let g:go_fmt_command = "goimports"
+
+" easy-align keybindings
+" Start interactive EasyAlign in visual mode (e.g. vipga)
+xmap ga <Plug>(EasyAlign)
+
+" Start interactive EasyAlign for a motion/text object (e.g. gaip)
+nmap ga <Plug>(EasyAlign)
+
+nmap gr gT<CR>
+
+map <leader>ev :tabnew<CR>:edit ~/.vimrc<CR>
+map <leader>s :so ~/.vimrc<CR>
+map <leader>t :tabnew<CR>
+
+set autoread
+set wildmenu
+set magic
+
+" No annoying sound on errors
+set noerrorbells
+set novisualbell
+set t_vb=
+set tm=500
+
+" $HOME/.vimrc
+set directory=$HOME/.vim/swapfiles/
+
+" enable syntax checkers
+let g:syntastic_enable_perl_checker = 1
+
+imap subr sub <ESC>o{<RETURN>}<ESC>kkA
