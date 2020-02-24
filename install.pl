@@ -46,9 +46,10 @@ sub fix_vim_swapfile
 sub unpack_dotfiles
 {
   my @progs = qw(
+    git
+    tmux
     vim
     zsh
-    tmux
   );
 
   # make sure we have stow
