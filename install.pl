@@ -38,7 +38,9 @@ sub install_oh_my_zsh
 
 sub fix_vim_swapfile
 {
-  system(mkdir => "~/.vim/swapfiles/") && do {
+  system(mkdir => -p => "~/.vim/swapfiles/") && do {
     die "Unable to create swapfile directory: $?";
   };
 }
+
+sub
