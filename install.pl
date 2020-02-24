@@ -10,12 +10,12 @@ use File::Which;
 
 sub main
 {
-    install_vundle();
-    install_oh_my_zsh();
-    fix_vim_swapfile();
-    symlink_dotfiles();
+  install_vundle();
+  install_oh_my_zsh();
+  fix_vim_swapfile();
+  unpack_dotfiles();
 
-    return 0;
+  return 0;
 }
 
 sub install_vundle
@@ -43,18 +43,22 @@ sub fix_vim_swapfile
   };
 }
 
-sub symlink_dotfiles
+sub unpack_dotfiles
 {
-  my @local_files = qw(
-    .vimrc
-    .zshrc
-    .tmux.con
+  my @progs = qw(
+    vim
+    zsh
+    tmux
   );
 
-  for my $filename (@local_files) {
-    my $target = "$HOME/.$filename";
-    system('ln', '-s', $filename => $target) && do {
-      die "Unable to create symlink for $filename: $?";
+  # make sure we have stow
+  system('stow --version 1>/dev/null') && do {
+      die "Doesn't look like stow is available. Exiting.";
+  };
+
+  for my $program (@progs) {
+    system(stow => $program) && do {
+      die "Unable to unpack $program $?";
     };
   }
 }
