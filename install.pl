@@ -3,11 +3,6 @@
 use strict;
 use warnings;
 
-use Carp         qw( carp croak );
-use Cwd          qw( abs_path   );
-use Env          qw( HOME       );
-use File::Which;
-
 sub main
 {
   install_vundle();
