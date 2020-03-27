@@ -171,12 +171,10 @@ set directory=$HOME/.vim/swapfiles/
 " enable syntax checkers
 let g:syntastic_enable_perl_checker = 1
 
-imap subr sub <ESC>o{<RETURN>}<ESC>kkA
-
 " use ripgrep for ctrlp if it's handy
 if executable('rg')
   set grepprg=rg\ --color=never
-  let g:ctrlp_user_command = 'rg %s --files --color=never --glob ""'
+  let g:ctrlp_user_command = 'rg %s --files --color=never --glob "" --ignore'
   let g:ctrlp_use_caching = 0
 endif
 
@@ -186,3 +184,4 @@ autocmd BufWinEnter * match ExtraWhitespace /\s\+$/
 autocmd InsertEnter * match ExtraWhitespace /\s\+\%#\@<!$/
 autocmd InsertLeave * match ExtraWhitespace /\s\+$/
 autocmd BufWinLeave * call clearmatches()
+

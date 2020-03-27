@@ -26,6 +26,12 @@ alias ...="cl ../.."
 alias cx="chmod +x"
 alias e="vim ~/.zshrc; source ~/.zshrc"
 alias j='journal'
+alias clearswap='rm -rf ~/.vim/swapfiles/*'
+alias gs='git status'
+alias gco='git checkout'
+alias git\ cram='git add . -u && git commit --amend --no-edit'
+alias sd='sudo systemctl'
+alias regtest='surf regex101.com'
 # :</aliases>
 
 # :<functions>
@@ -41,12 +47,19 @@ export PATH="$GOENV_ROOT/bin:$PATH"
 export PATH="~/go/1.13.6/bin:$PATH"
 # :</go-setup>
 
+# :<perl-setup>
+export PATH=$HOME/.plenv/bin:$PATH
+eval "$(plenv init -)"
+# :</perl-setup>
+
 # :<path-setup>
 export PATH=/usr/local/bin:$PATH
 export PATH=$HOME/bin:$PATH
 export PATH=$HOME/scripts:$PATH
-export PATH=$GOBIN:$GOROOT/bin:$PATH
+export PnATH=$GOBIN:$GOROOT/bin:$PATH
 export PATH=$HOME/go/1.13.5/bin:$PATH
+export PATH=$HOME/new/bin:$PATH
+export PATH=$HOME/watchman/bin:$PATH
 # :</path-setup>
 
 
@@ -55,7 +68,7 @@ eval "$(goenv init -)"
 # export PATH=/bin:/sbin:/usr/bin:/usr/local/bin:$HOME/bin
 
 
-# The rest is just usefule stuff from
+# The rest is just useful stuff from
 # https://wiki.archlinux.org/index.php/Bash/Functions
 
 extract() {
@@ -123,10 +136,3 @@ todo() {
         printf "%s\n" "$*" >> "$HOME/.todo"
     fi
 }
-
-alias clearswap='rm -rf ~/.vim/swapfiles/*'
-alias gs='git status'
-alias gco='git checkout'
-alias git\ cram='git add . -u && git commit --amend --no-edit'
-alias sd='sudo systemctl'
-
