@@ -16,6 +16,7 @@ source $ZSH/oh-my-zsh.sh
 # :<env-setup>
 export LANG=en_US.UTF-8
 export EDITOR=vim # <3 vim
+# export PAGER='vim -u /home/mstewart/.vl.vimrc -'
 set -o vi
 # :</env-setup>
 
@@ -32,7 +33,19 @@ alias gco='git checkout'
 alias git\ cram='git add . -u && git commit --amend --no-edit'
 alias sd='sudo systemctl'
 alias regtest='surf regex101.com'
+alias perldoc='carton exec -- perldoc'
+alias flex='carton exec -- perl -Ilib -MFlexy -MData::Dump'
+alias tls='tmux list-sessions'
+alias tat='tmux attach-session -t'
+alias tnew='tmux new-session -s'
+alias vl='vim -u ~/.vl.vimrc -'
 # :</aliases>
+#
+# :<functions>
+function psearch () {
+  pamac search $1 | less
+}
+# :</functions>
 
 # :<functions>
 mkcd () {
@@ -136,3 +149,6 @@ todo() {
         printf "%s\n" "$*" >> "$HOME/.todo"
     fi
 }
+
+# make commands bold on execution
+preexec() { printf "\e[0m"; }

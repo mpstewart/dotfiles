@@ -171,6 +171,11 @@ set directory=$HOME/.vim/swapfiles/
 " enable syntax checkers
 let g:syntastic_enable_perl_checker = 1
 
+" perl folding stuff
+set foldmethod=syntax
+set foldlevelstart=3
+let perl_fold = 1
+
 " use ripgrep for ctrlp if it's handy
 if executable('rg')
   set grepprg=rg\ --color=never
