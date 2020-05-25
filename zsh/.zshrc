@@ -75,6 +75,7 @@ export PnATH=$GOBIN:$GOROOT/bin:$PATH
 export PATH=$HOME/go/1.13.5/bin:$PATH
 export PATH=$HOME/new/bin:$PATH
 export PATH=$HOME/watchman/bin:$PATH
+export PATH=$HOME/dotfiles/scripts:$PATH
 # :</path-setup>
 
 
