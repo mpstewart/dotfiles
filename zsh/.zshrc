@@ -54,15 +54,17 @@ mkcd () {
 }
 # :</functions>
 
+## Uncomment if using goenv
 # :<go-setup>
-export GOENV_ROOT="$HOME/.goenv"
-export PATH="$GOENV_ROOT/bin:$PATH"
-export PATH="~/go/1.13.6/bin:$PATH"
+# export GOENV_ROOT="$HOME/.goenv"
+# export PATH="$GOENV_ROOT/bin:$PATH"
+# export PATH="~/go/1.13.6/bin:$PATH"
 # :</go-setup>
 
+## Uncomment if using plenv
 # :<perl-setup>
-export PATH=$HOME/.plenv/bin:$PATH
-eval "$(plenv init -)"
+# export PATH=$HOME/.plenv/bin:$PATH
+# eval "$(plenv init -)"
 # :</perl-setup>
 
 # :<path-setup>
@@ -76,8 +78,9 @@ export PATH=$HOME/watchman/bin:$PATH
 # :</path-setup>
 
 
+## Uncomment is using goenv
 # Keep this near the bottom, as it munges $PATH
-eval "$(goenv init -)"
+# eval "$(goenv init -)"
 # export PATH=/bin:/sbin:/usr/bin:/usr/local/bin:$HOME/bin
 
 
