@@ -3,6 +3,8 @@
 use strict;
 use warnings;
 
+use Env qw( HOME );
+
 sub main
 {
   install_vundle();
@@ -15,7 +17,7 @@ sub main
 
 sub install_vundle
 {
-  my $cmd = 'git clone https://github.com/VundleVim/Vundle.vim.git ~/.vim/bundle/Vundle.vim';
+  my $cmd = "git clone https://github.com/VundleVim/Vundle.vim.git $HOME/.vim/bundle/Vundle.vim";
 
   system($cmd) && do {
     die "Error installing vundle: $?";
@@ -24,7 +26,7 @@ sub install_vundle
 
 sub install_oh_my_zsh
 {
-  my $cmd = 'git clone https://github.com/mpstewart/oh-my-zsh ~/.oh-my-zsh';
+  my $cmd = "git clone https://github.com/mpstewart/oh-my-zsh $HOME/.oh-my-zsh";
 
   system($cmd) && do {
     die "Error installing oh-my-zsh $?";
@@ -33,7 +35,7 @@ sub install_oh_my_zsh
 
 sub fix_vim_swapfile
 {
-  system(mkdir => -p => "~/.vim/swapfiles/") && do {
+  system(mkdir => -p => "$HOME/.vim/swapfiles/") && do {
     die "Unable to create swapfile directory: $?";
   };
 }
