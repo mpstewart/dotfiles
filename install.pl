@@ -2,63 +2,109 @@
 # install.pl - install comfy env stuff
 use strict;
 use warnings;
+use v5.10;
 
-use Env qw( HOME );
+use Env  qw( HOME       );
+use Carp qw( croak carp );
 
-sub main
-{
-  install_vundle();
-  install_oh_my_zsh();
-  fix_vim_swapfile();
-  unpack_dotfiles();
+# things we are configuring
+my @installing = qw(
+  tmux
+  vim
+  zsh
+);
+
+# things we depend on
+my @deps = qw(
+  git
+);
+
+
+sub main {
+  say 'Verifying dependencies...';
+  _run("which $_", silent => 1) for (@installing, @deps);
+
+  my @operations = (
+    [vim  => \&setup_vim ],
+    [tmux => \&setup_tmux],
+    [zsh  => \&setup_zsh ],
+  );
+
+  foreach my $op (@operations) {
+    my ($prog, $setup) = @$op;
+    say "\nSetting up $prog...";
+    $setup->();
+    say "Done.\n";
+  }
 
   return 0;
 }
 
-sub install_vundle
-{
-  my $cmd = "git clone https://github.com/VundleVim/Vundle.vim.git $HOME/.vim/bundle/Vundle.vim";
+sub setup_vim {
+  _install_repo(
+    'VundleVim/Vundle.vim.git',
+    "$HOME/.vim/bundle/Vundle.vim"
+  );
 
-  system($cmd) && do {
-    die "Error installing vundle: $?";
-  };
-}
+  _unpack_config('vim');
 
-sub install_oh_my_zsh
-{
-  my $cmd = "git clone https://github.com/mpstewart/oh-my-zsh $HOME/.oh-my-zsh";
+  system(vim => '+PluginInstall', '+qall');
 
-  system($cmd) && do {
-    die "Error installing oh-my-zsh $?";
-  };
-}
-
-sub fix_vim_swapfile
-{
   system(mkdir => -p => "$HOME/.vim/swapfiles/") && do {
     die "Unable to create swapfile directory: $?";
   };
 }
 
-sub unpack_dotfiles
-{
-  my @progs = qw(
-    git
-    tmux
-    vim
-    zsh
+sub setup_tmux {
+  _install_repo(
+    'tmux-plugins/tpm',
+    "$HOME/.tmux/plugins/tpm"
   );
 
-  # make sure we have stow
-  system('stow --version 1>/dev/null') && do {
-      die "Doesn't look like stow is available. Exiting.";
-  };
+  _unpack_config('tmux');
 
-  for my $program (@progs) {
-    system(stow => $program) && do {
-      die "Unable to unpack $program $?";
-    };
-  }
+  say "Installing tmux plugins...";
+  _run("$HOME/.tmux/plugins/tpm/scripts/install_plugins.sh");
 }
+
+sub setup_zsh {
+  _install_repo(
+    'mpstewart/oh-my-zsh',
+    "$HOME/.oh-my-zsh"
+  );
+
+  _unpack_config('zsh');
+}
+
+sub _install_repo {
+  my ($repo, $destination) = @_;
+  my $github = 'git@github.com';
+  $repo = "$github:$repo";
+  _run("git clone $repo $destination");
+}
+
+sub _run {
+  my ($cmd, %args) = @_;
+
+  my $silent = !! $args{silent};
+  if ($silent) {
+    $cmd .= " 1>/dev/null"
+  }
+
+  say "Running $cmd" unless $silent;
+
+  my $lethal = !! $args{'lethal'};
+
+  system($cmd) && do {
+    my $msg = "Unable to $cmd = $?";
+    if ($lethal) {
+      croak $msg;
+    } else {
+      carp $msg;
+    }
+  };
+}
+
+sub _unpack_config { _run('stow '.$_[0]) }
 
 exit main();
