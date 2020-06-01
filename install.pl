@@ -47,12 +47,9 @@ sub setup_vim {
   );
 
   _unpack_config('vim');
+  _run("mkdir -p $HOME/.vim/swapfiles/");
 
-  system(vim => '+PluginInstall', '+qall');
-
-  system(mkdir => -p => "$HOME/.vim/swapfiles/") && do {
-    die "Unable to create swapfile directory: $?";
-  };
+  _run('vim +PluginInstall +qall');
 }
 
 sub setup_tmux {
