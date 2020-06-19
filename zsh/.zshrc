@@ -54,11 +54,10 @@ mkcd () {
 }
 # :</functions>
 
-## Uncomment if using goenv
 # :<go-setup>
-# export GOENV_ROOT="$HOME/.goenv"
-# export PATH="$GOENV_ROOT/bin:$PATH"
-# export PATH="~/go/1.13.6/bin:$PATH"
+export GOENV_ROOT="$HOME/.goenv"
+export PATH="$GOENV_ROOT/bin:$PATH"
+export PATH="~/go/1.13.11/bin:$PATH"
 # :</go-setup>
 
 ## Uncomment if using plenv
@@ -81,7 +80,7 @@ export PATH=$HOME/dotfiles/scripts:$PATH
 
 ## Uncomment is using goenv
 # Keep this near the bottom, as it munges $PATH
-# eval "$(goenv init -)"
+eval "$(goenv init -)"
 # export PATH=/bin:/sbin:/usr/bin:/usr/local/bin:$HOME/bin
 
 

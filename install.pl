@@ -25,9 +25,10 @@ sub main {
   _run("which $_", silent => 1) for (@installing, @deps);
 
   my @operations = (
-    [vim  => \&setup_vim ],
-    [tmux => \&setup_tmux],
-    [zsh  => \&setup_zsh ],
+    [vim  => \&setup_vim   ],
+    [tmux => \&setup_tmux  ],
+    [zsh  => \&setup_zsh   ],
+    [go   => \&setup_goenv ],
   );
 
   foreach my $op (@operations) {
@@ -71,6 +72,10 @@ sub setup_zsh {
   );
 
   _unpack_config('zsh');
+}
+
+sub setup_goenv {
+  _install_repo('syndbg/goenv', '~/.goenv');
 }
 
 sub _install_repo {
