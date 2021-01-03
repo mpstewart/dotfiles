@@ -17,6 +17,7 @@ my @installing = qw(
 # things we depend on
 my @deps = qw(
   git
+  stow
 );
 
 
@@ -24,6 +25,7 @@ sub main {
   say 'Verifying dependencies...';
   _run("which $_", silent => 1) for (@installing, @deps);
 
+  # list so we have predictable execution order
   my @operations = (
     [vim  => \&setup_vim   ],
     [tmux => \&setup_tmux  ],
