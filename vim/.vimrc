@@ -31,6 +31,7 @@ Plugin 'airblade/vim-gitgutter'
 Plugin 'junegunn/goyo.vim'
 Plugin 'jreybert/vimagit'
 Plugin 'vim-syntastic/syntastic'
+Plugin 'jremmen/vim-ripgrep'
 
 
 " All of your Plugins must be added before the following line
