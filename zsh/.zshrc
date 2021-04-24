@@ -154,3 +154,8 @@ todo() {
 
 # make commands bold on execution
 preexec() { printf "\e[0m"; }
+
+attach() {
+  HOST=$1
+  ssh $HOST -t "tmux -u attach-session"
+}
