@@ -3,400 +3,320 @@ use strict;
 use warnings;
 use v5.10;
 
-use Carp         qw( croak confess );
-use Data::Dump   qw( ddx pp );
-use DBI;
-use Env          qw( HOME );
-use File::Temp;
-use File::Slurp  qw( write_file read_file );
-
-my $journal_db_location = "$HOME/.journal.db";
-my $dsn = "dbi:SQLite:dbname=$journal_db_location";
-our $Dbh = DBI->connect($dsn, '', '',);
-
-# -----------------
-# MAIN
-# -----------------
-# catch, validate, and dispatch commands
-sub main
-{
-  switch: for ($ARGV[0]) {
-    !defined($_) && do { # default is new entry
-      my $entry_id = run_write_mode();
-      my %entry    = get_entry($entry_id);
-      print_entry(\%entry);
-
-      last switch;
-    };
-
-    /^show$/ && do {
-      my @entry_ids = @ARGV[1..$#ARGV];
-			unshift @entry_ids, undef unless @entry_ids;
-      validate_entry_id($_) for @entry_ids;
-
-      run_show_mode(@entry_ids);
-      last switch;
-    };
-
-    /^list$/ && do {
-      my $oneline = $ARGV[1] && $ARGV[1] =~ /^--oneline$/;
-      run_list_mode(oneline => $oneline);
-      last switch;
-    };
-
-    /^edit$/ && do {
-      my $entry_id = $ARGV[1];
-      validate_entry_id($entry_id);
-
-      run_edit_mode($entry_id);
-
-      my %entry = get_entry($entry_id);
-      print_entry(\%entry);
-
-      last switch;
-    };
-
-    /^(delete|rm)$/ && do {
-      my @entry_ids = @ARGV[1..$#ARGV];
-			unshift @entry_ids, undef unless @entry_ids;
-      validate_entry_id($_) for @entry_ids;
-
-      run_delete_mode(@entry_ids);
-      last switch;
-    };
-
-    /^init$/ && do {
-      run_init_mode();
-      last switch;
-    };
-
-    die sprintf("Uncrecognized command %s\n",
-      $ARGV[0],
-    );
-  };
-
-  $Dbh->disconnect();
-}
-
-# --------
-# HANDLERS
-# --------
-# Receive dispatch from main. Can safely assume arguments are valid.
-#
-# run_write_mode
-# obtain an entry from the editor, then write it to the database
-# returns the entry_id of the created (or edited) entry
-sub run_write_mode
-{
-  my $class = shift;
-
-  my ($title, $body) = new_entry();
-  my $entry_id       = insert_entry($title, $body);
-
-  return $entry_id;
-}
-
-# run_show_mode
-# given 1 or more entry_ids, print the associated entry cards to the screen.
-# This is done via multiple calls to print_entry()
-sub run_show_mode
-{
-  my @entry_ids = @_;
-
-  for my $entry_id (@entry_ids) {
-    my %entry = get_entry($entry_id);
-    print_entry(%entry);
-  };
-}
-
-# run_list_mode
-# print a list of all entries to the screen
-sub run_list_mode
-{
-  my %params = @_;
-
-  return _run_oneline_mode() if $params{oneline};
-
-	my @entries = get_all_entries();
-
-	if (scalar @entries == 0) {
-		say "Journal database appears to be empty.";
-		exit 0;
-	}
-
-  print_entry($_) for @entries;
-}
-
-# _run_oneline_mode
-# private sub-handler for run_list_mode
-sub _run_oneline_mode
-{
-  my @entries = get_all_entries();
-  print_entry_oneline($_) for @entries;
-}
-
-# run_edit_mode
-# given an entry_id, edit the associated entry
-sub run_edit_mode
-{
-  my $entry_id = shift;
-
-  # get entry data
-  my %entry = get_entry($entry_id);
-
-  my $title = $entry{title};
-  my $body  = $entry{body};
-
-  ($title, $body) = edit_entry($title, $body);
-  insert_entry($title, $body, entry_id => $entry_id);
-}
-
-# run_delete_mode
-# given an entry_id, delete an existing entry
-# TODO: display and prompt?
-sub run_delete_mode
-{
-  my @entry_ids = @_;
-  delete_entry($_) for @entry_ids;
-}
-
-# run_init_mode
-# ***WARNING*** Calling this will drop the database without warning or remorse
-# TODO: prompt
-sub run_init_mode
-{
-	$Dbh->disconnect();
-	system (rm => $journal_db_location) && do {
-		croak "Unable to remove journal file: $?";
-	};
-
-	system (touch => $journal_db_location) && do {
-		croak "Unable to create journal file: $?";
-	};
-
-	# the initialized handle is invalid; re-connect...
-	my $dbh = DBI->connect($dsn, '', '',);
-  init_db($dbh);
-
-  # set the global $Dbh to the new $dbh, so it can be cleaned up later at the
-  # end of main()
-  $Dbh = $dbh;
-}
-
-# ---------
-# BIZ STUFF
-# ---------
-# Functions that facilitate interacting with journal entries, mostly editing
-#
-# new_entry
-# edit_entry
-#
-# _write_entry
-# Functions to edit a journal entry in the editor. In all cases, returns title
-# and body strings in a list. Optionally, existing title and body can be
-# passed, in which case they will be available in the file buffer for editing.
-#
-# new_entry and edit_entry are just wrappers around _write_entry
-sub new_entry  { _write_entry(@_) }
-sub edit_entry { _write_entry(@_) }
-sub _write_entry
-{
-  my ($title, $body) = @_;
-
-  my $editing = $title && $body;
-
-  my $ft = File::Temp->new(
-    UNLINK => 1,
-    TEMPLATE => 'journal-entry-XXXXX',
-  );
-
-  if ($editing) {
-    print $ft "$title\n---\n\n$body";
-  }
-  else {
-    print $ft "<Title>\n---\n\n";
-  }
-
-  system(vim => $ft->filename) && do {
-    confess "Cannot open file for writing: $?\n";
-  };
-
-  my $raw_text       = read_file($ft->filename);
-  ($title, $body) = split /\n---\n\n?/, $raw_text;
-
-  return ($title, $body);
-}
-
-# ------------
-# DB FUNCTIONS
-# ------------
-# Functions for interacting with the database
-#
-# get_entry
-# given an entry_id, return a hash representing the corresponding entry from
-# the database if it exists
-sub get_entry
-{
-  my $entry_id = shift;
-
-  # get entry data
-  my %entry = %{$Dbh->selectrow_hashref(<<SQL, {}, $entry_id)};
-  SELECT * FROM entries WHERE entry_id = ?;
-SQL
-
-  return %entry;
-}
-
-# get_all_entries
-# Returns a list of hashrefs, representing all journal entries in the database.
-sub get_all_entries
-{
-  my $r = $Dbh->selectall_hashref(<<SQL, 'entry_id');
-  SELECT * FROM entries;
-SQL
-
-  my @entries = ();
-  foreach my $entry_id (sort keys %$r) {
-    my %entry = %{ $r->{$entry_id} };
-    push @entries, \%entry;
-  }
-
-  return @entries;
-}
-
-# insert_entry
-# given a title and body, write the entry to the database
-sub insert_entry
-{
-  my ($title, $body, %params) = @_;
-  die "Need title and body. Exiting.\n" unless $title && $body;
-
-  my $updating = my $entry_id = $params{entry_id};
-
-  my $rv;
-  if ($updating) {
-    $rv = $Dbh->do(<<SQL, {}, $title, $body, $entry_id);
-UPDATE entries
-SET
-  title = ?,
-  body  = ?
-WHERE
-  entry_id = ?;
-SQL
-
-    return $entry_id;
-  }
-
-  else {
-    $rv = $Dbh->do(<<SQL, {}, $title, $body);
-INSERT INTO entries (title, body) VALUES (?, ?)
-SQL
-    return $Dbh->last_insert_id();
-  }
-}
-
-# delete_entry
-# given an entry ID, remove the entry from the database
-sub delete_entry
-{
-  my $entry_id = shift;
-
-  $Dbh->do(<<SQL, {}, $entry_id)
-DELETE FROM entries WHERE entry_id = ?;
-SQL
-}
-
-# init_db
-# run the db initilization SQL against a dbh if provided, or the global $Dbh if
-# none
-sub init_db
-{
-  my $dbh = shift(@_) // $Dbh;
-
-	$Dbh->do(<<SQL);
-CREATE TABLE IF NOT EXISTS entries (
-  entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title    TEXT NOT NULL,
-  created  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  body     TEXT NOT NULL
+my $datetime_formatter = DateTime::Format::CLDR->new(
+  pattern => 'yyyy-MM-dd HH:mm',
+  locale => 'en_US.UTF-8',
+  time_zone => 'America/New_York',
 );
-SQL
 
-}
+package entry {
+  use Moo;
 
-# --------------
-# VIEW FUNCTIONS
-# --------------
-# Console interactions
-#
-# print_entry
-# given a hash or hashref representing an entry, print it to the screen
-sub print_entry
-{
-  my %entry     = ref($_[0]) ? %{+shift} : @_;
-  my $title     = $entry{title};
-  my $body      = $entry{body};
-  my $created   = $entry{created};
-  my $entry_id  = $entry{entry_id};
+  use Digest::MD5 qw( md5_hex );
+  use DateTime;
+  use DateTime::Format::CLDR;
 
-  say "-" x 50;
-  say sprintf("Title: %-39s%04d", $title, $entry_id);;
-  say "Time: $created";
-  say "---\n";
-  say $body;
-}
-
-# print_entry_oneline
-# Given a hash or hashref representing an entry, print a one line summary of it
-sub print_entry_oneline
-{
-  my %entry = ref($_[0]) ? %{+shift} : @_;
-
-  my ($date) = $entry{created} =~ /^(\d{4}-\d\d-\d\d)/;
-
-  my $one_line = sprintf("%04d| %s: %-33s",
-    $entry{entry_id},
-    $date,
-    $entry{title},
+  has title => (
+    is       => 'rw',
+    isa      => sub { length $_[0] },
+    required => 1,
+    trigger  => 1,
   );
 
-  say $one_line;
-}
+  sub _trigger_title {
+    my ($self, $title) = @_;
+    $self->_set_id(md5_hex($title));
+  }
 
-# -------
-# HELPERS
-# -------
-#
-# validate_entry_id
-# Given an entry_id, ensure the following:
-#   1. The entry_id is defined, and all numerical
-#   2. The entry exists in the database
-sub validate_entry_id
-{
-  my $entry_id = shift;
+  has id => (
+    is => 'rwp',
+    isa => sub { $_[0] =~ /^\w{32}$/a },
+  );
 
-  my $die_invalid = sub {
-    my $reason = shift;
-    die "Invalid Entry ID. $reason.\n";
+  has time_stamp => (
+    is     => 'rw',
+    isa    => sub { ref $_[0] eq 'DateTime' },
+    coerce => sub {
+      my $dt = $_[0];
+
+      if (not ref $dt) {
+       $dt = $datetime_formatter->parse_datetime($_[0])
+      }
+
+      $dt->set_formatter($datetime_formatter);
+
+      return $dt;
+    },
+    default => sub {
+      my $now = DateTime->now( time_zone => 'America/New_York');
+      $now->set_formatter($datetime_formatter);
+    },
+  );
+
+  has content => (
+    is => 'rw',
+  );
+
+  has datetime_formatter => (
+    is => 'rwp',
+    handles => [
+      'format_datetime',
+    ],
+    default => sub { $datetime_formatter },
+  );
+
+  sub TO_JSON {
+    my $self = shift;
+    return {
+      time_stamp => $self->time_stamp->stringify,
+      title      => $self->title,
+      content    => $self->content,
+      id         => $self->id,
+    };
+
+  }
+};
+
+package db {
+  use Moo;
+
+  use Env qw( HOME );
+  use IO::File;
+  use JSON;
+
+  my $file = "$HOME/.local/journal/journal.json";
+
+  has store => (
+    is => 'lazy',
+  ); sub _build_store {
+    my $self = shift;
+    my $fh = IO::File->new($file, O_RDONLY);
+    my $json = do { local $/; <$fh> };
+    undef $fh;
+    my $store = decode_json($json);
+    return $store;
   };
 
-  my $die_missing = sub {
-    die "No entry found for id '$entry_id'\n";
-  };
+  has json => (
+    is  => 'rwp',
+    isa => sub { ref $_[0] eq 'JSON' },
+    handles => [
+      'encode',
+    ],
+    default => sub {
+      return JSON->new->utf8->allow_blessed->convert_blessed;
+    },
+  );
 
-  defined($entry_id)   or $die_invalid->('Entry ID is missing');
-  $entry_id =~ /^\d+$/ or $die_invalid->('Entry ID must be numerical');
+  sub persist_store {
+    my $self = shift;
+    my $fh = IO::File->new($file, 'w');
+    my $store_json = $self->encode($self->store);
+    print $fh $store_json;
+  }
 
-  # we now know the entry_id is at least valide for searching, let's make sure
-  # we have something that matches it
-  my @valid_ids = @{$Dbh->selectcol_arrayref(<<SQL, {}, $entry_id)};
-SELECT entry_id from entries WHERE entry_id = ?;
-SQL
+  sub DESTROY {
+    my $self = shift;
+    $self->persist_store;
+  }
 
-  scalar(@valid_ids) or $die_missing->();
+  sub store_entry {
+    my ($self, $entry) = @_;
+    $self->store->{$entry->id} = $entry;
+  }
 
-  return;
+  sub get_entry {
+    my ($self, $id) = @_;
+    my $entry = $self->store->{$id};
+    $entry = entry->new(%$entry);
+
+    if (not defined $entry) {
+      return (undef, "Unable to find entry for id $id");
+    }
+    return ($entry);
+  }
+
+  sub get_entries {
+    my $self = shift;
+    my $store = $self->store;
+
+    my @entries =
+      sort { $b->time_stamp cmp $a->time_stamp }
+      map  { entry->new(%{$store->{$_}})          }
+      keys %$store;
+
+    return (\@entries);
+  }
+
+  sub delete_entry {
+    my ($self, $id) = @_;
+
+    my $entry = delete $self->store->{$id};
+    if (not defined $entry) {
+      return (undef, "Entry with id $id not found");
+    }
+
+    return 1;
+  }
 }
 
-main();
-exit 0;
+package vim {
+  use Moo;
+  use File::Temp;
+
+  sub get_content {
+    my $file = File::Temp->new(
+      UNLINK => 1,
+    );
+
+    system(vim => $file->filename());
+
+    my $content = do { local $/; <$file> };
+
+    return $content;
+  }
+};
+
+package view {
+  use Moo;
+  use List::Util qw( max );
+  use String::Errf qw( errf );
+
+  sub render {
+    my ($self, $entry) = @_;
+    my $template = <<TEMPLATE;
+TITLE:      %{title}s
+TIME_STAMP: %{time_stamp}s
+--------------------------------------------------------------------------------
+%{content}s
+TEMPLATE
+
+    return errf $template, $entry;
+  }
+
+  sub render_entries {
+    my ($self, @entries) = @_;
+    my $header = <<HEADER;
+ID                                      TIME_STAMP              TITLE
+HEADER
+    my @lines;
+    my $template = "%{id}s        %{time_stamp}s        %{title}s\n";
+    for my $e (@entries) {
+      push @lines, errf( $template, {
+        id         => $e->id,
+        time_stamp => $e->time_stamp->stringify,
+        title      => $e->title,
+      });
+    }
+
+    my $max = max map { length } ($header, @lines);
+    my $divider = "=" x ($max-1) . "\n";
+
+    return join "", ($header, $divider, @lines);
+  }
+}
+
+package subcommand {
+  sub new {
+    my %opt = @_;
+
+    my $db = db->new;
+		my $vim = vim->new;
+
+    my $title = $opt{title};
+
+		my ($content, @errors) = $vim->get_content;
+		if (@errors) {
+      say STDERR "Error during editing:";
+      say STDERR "- $_" for @errors;
+      exit 1;
+    }
+
+    my $e = entry->new(
+      title => $opt{title},
+      content => $content,
+    );
+
+    $db->store_entry($e);
+    say $e->id;
+  }
+
+  sub show {
+    my %opt = @_;
+    my $id = shift @ARGV;
+
+    my $db = db->new;
+
+    my ($entry, @errors) = $db->get_entry($id);
+		if (@errors) {
+      say STDERR "Error while getting entry:";
+      say STDERR "- $_" for @errors;
+      exit 1;
+    }
+
+    my $view = view->new();
+    my $rendered = $view->render($entry);
+    say $rendered;
+  }
+
+  sub browse {
+    my $db = db->new;
+    my ($entries, @errors) = $db->get_entries;
+		if (@errors) {
+      say STDERR "Error while getting entries:";
+      say STDERR "- $_" for @errors;
+      exit 1;
+    }
+
+    my $view = view->new;
+    my $rendered = $view->render_entries(@$entries);
+    say $rendered;
+  }
+
+  sub delete {
+    my %opt = @_;
+    my $id = shift @ARGV;
+
+    my $db = db->new;
+    my ($ok, @errors) = $db->delete_entry($id);
+    if (not $ok) {
+      say STDERR "Could not delete entry:";
+      say STDERR "- $_" for @errors;
+      exit 1;
+    }
+  }
+};
+
+package main {
+  use Getopt::Long::Subcommand;
+  my %opt;
+
+  sub dispatch;
+  sub handle_new;
+
+  my $res = GetOptions(
+    subcommands => {
+      new => {
+        options => {
+          'title|t=s' => {
+            handler => \$opt{title},
+          },
+        },
+      },
+
+      show   => { },
+      browse => { },
+
+      delete   => { },
+    },
+  );
+  exit 1 unless $res->{success};
+  my ($cmd) = ($res->{subcommand}->@*);
+
+  {
+    new    => \&subcommand::new,
+    show   => \&subcommand::show,
+    browse => \&subcommand::browse,
+    delete   => \&subcommand::delete,
+  }->{$cmd}->(%opt);
+}
