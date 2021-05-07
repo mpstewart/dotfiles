@@ -13,6 +13,10 @@ plugins=(
 source $ZSH/oh-my-zsh.sh
 # :</zsh-setup>
 
+if [ -f  "$HOME/.local/zshrc" ]; then
+  source ~/.local/zshrc
+fi
+
 # :<env-setup>
 export LANG=en_US.UTF-8
 export EDITOR=vim # <3 vim
