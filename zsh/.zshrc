@@ -71,13 +71,13 @@ export PATH="~/go/1.13.11/bin:$PATH"
 
 # :<path-setup>
 export PATH=/usr/local/bin:$PATH
-export PATH=$HOME/bin:$PATH
 export PATH=$HOME/scripts:$PATH
 export PnATH=$GOBIN:$GOROOT/bin:$PATH
 export PATH=$HOME/go/1.13.5/bin:$PATH
 export PATH=$HOME/new/bin:$PATH
 export PATH=$HOME/watchman/bin:$PATH
 export PATH=$HOME/dotfiles/scripts:$PATH
+export PATH=$HOME/bin:$PATH
 # :</path-setup>
 
 
