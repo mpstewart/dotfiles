@@ -42,6 +42,11 @@ alias tls='tmux list-sessions'
 alias tat='tmux attach-session -t'
 alias tnew='tmux new-session -s'
 alias vl='vim -u ~/.vl.vimrc -'
+
+#peeeeeeeerl
+alias pdoc="perldoc";
+alias pdebug="perl -d "
+alias pol="perl -Mstrict -Mwarnings -E "
 # :</aliases>
 #
 # :<functions>
